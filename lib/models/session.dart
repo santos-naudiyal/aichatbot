@@ -36,7 +36,7 @@ class ChatSession {
                 timestamp: DateTime.parse(m['timestamp']),
                 isEdited: m['isEdited'] ?? false,
                 parentMessageId: m['parentMessageId'],
-                imageUrl: m['imageUrl'],
+                imageUrls: m['imageUrl'],
               ))
           .toList(),
       createdAt: DateTime.parse(json['createdAt']),

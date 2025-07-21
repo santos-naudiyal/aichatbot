@@ -1,4 +1,9 @@
+import 'dart:io';
+
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:animate_do/animate_do.dart';
@@ -13,6 +18,7 @@ import '../models/chat_message.dart';
 import '../models/session.dart';
 import '../utils/storage_service.dart';
 import '../widgets/chat_bubble.dart';
+import 'package:http/http.dart' as http;
 
 class ChatScreen extends StatefulWidget {
   final ChatSession? initialSession;
@@ -24,6 +30,8 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
+  final ImagePicker _picker = ImagePicker();
+  File? _selectedImage; // Store selected/taken image
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final StorageService storageService = StorageService();
@@ -49,111 +57,60 @@ class _ChatScreenState extends State<ChatScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
   }
 
- void _initSpeech() async {
-  try {
-    bool initialized = await _speechToText.initialize(
-      onStatus: (status) {
-        setState(() => _isListening = status == 'listening');
-      },
-      onError: (error) {
-        setState(() => _isListening = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Voice input error: ${error.errorMsg}')),
-        );
-      },
-    );
-    setState(() => _isSpeechEnabled = initialized);
-    if (!initialized) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Voice input initialization failed. Please enable microphone permissions.')),
-      );
-    }
-  } catch (e) {
-    setState(() => _isSpeechEnabled = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Voice input setup failed: $e')),
-    );
-  }
-}
-
-void _startListening() async {
-  final permissionStatus = await Permission.microphone.status;
-  if (permissionStatus.isGranted) {
-    if (_isSpeechEnabled) {
-      setState(() => _isListening = true);
-      try {
-        await _speechToText.listen(
-          onResult: (result) {
-            setState(() => _controller.text = result.recognizedWords);
-          },
-          listenFor: const Duration(seconds: 30),
-          pauseFor: const Duration(seconds: 5),
-          localeId: 'en_US',
-        );
-      } catch (e) {
-        setState(() => _isListening = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to start voice input: $e')),
-        );
-      }
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Voice input unavailable. Please try again.')),
-      );
-    }
-  } else {
-    if (permissionStatus.isPermanentlyDenied) {
-      showDialog(
-        context: context,
-        builder: (context) {
-          final themeProvider = Provider.of<ThemeProvider>(context);
-          return AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            backgroundColor: themeProvider.themeMode == ThemeMode.dark ? Colors.grey[800] : Colors.white,
-            title: const Text('Microphone Permission', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-            content: const Text('Microphone access is required for voice input. Please enable it in app settings.'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-              ),
-              TextButton(
-                onPressed: () {
-                  openAppSettings();
-                  Navigator.pop(context);
-                },
-                child: Text('Open Settings', style: TextStyle(color: Colors.blue[700])),
-              ),
-            ],
+  void _initSpeech() async {
+    try {
+      bool initialized = await _speechToText.initialize(
+        onStatus: (status) {
+          setState(() => _isListening = status == 'listening');
+        },
+        onError: (error) {
+          setState(() => _isListening = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Voice input error: ${error.errorMsg}')),
           );
         },
       );
-    } else {
-      final newStatus = await Permission.microphone.request();
-      if (newStatus.isGranted) {
-        if (_isSpeechEnabled) {
-          setState(() => _isListening = true);
-          try {
-            await _speechToText.listen(
-              onResult: (result) {
-                setState(() => _controller.text = result.recognizedWords);
-              },
-              listenFor: const Duration(seconds: 30),
-              pauseFor: const Duration(seconds: 5),
-              localeId: 'en_US',
-            );
-          } catch (e) {
-            setState(() => _isListening = false);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Failed to start voice input: $e')),
-            );
-          }
-        } else {
+      setState(() => _isSpeechEnabled = initialized);
+      if (!initialized) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Voice input initialization failed. Please enable microphone permissions.')),
+        );
+      }
+    } catch (e) {
+      setState(() => _isSpeechEnabled = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Voice input setup failed: $e')),
+      );
+    }
+  }
+
+  void _startListening() async {
+    final permissionStatus = await Permission.microphone.status;
+    if (permissionStatus.isGranted) {
+      if (_isSpeechEnabled) {
+        setState(() => _isListening = true);
+        try {
+          await _speechToText.listen(
+            onResult: (result) {
+              setState(() => _controller.text = result.recognizedWords);
+            },
+            listenFor: const Duration(seconds: 30),
+            pauseFor: const Duration(seconds: 5),
+            localeId: 'en_US',
+          );
+        } catch (e) {
+          setState(() => _isListening = false);
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Voice input unavailable. Please try again.')),
+            SnackBar(content: Text('Failed to start voice input: $e')),
           );
         }
       } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Voice input unavailable. Please try again.')),
+        );
+      }
+    } else {
+      if (permissionStatus.isPermanentlyDenied) {
         showDialog(
           context: context,
           builder: (context) {
@@ -162,30 +119,81 @@ void _startListening() async {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               backgroundColor: themeProvider.themeMode == ThemeMode.dark ? Colors.grey[800] : Colors.white,
               title: const Text('Microphone Permission', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-              content: const Text('Microphone access is required for voice input. Please grant permission to continue.'),
+              content: const Text('Microphone access is required for voice input. Please enable it in app settings.'),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
                   child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
                 ),
                 TextButton(
-                  onPressed: () async {
+                  onPressed: () {
+                    openAppSettings();
                     Navigator.pop(context);
-                    final newStatus = await Permission.microphone.request();
-                    if (newStatus.isGranted) {
-                      _startListening();
-                    }
                   },
-                  child: Text('Grant', style: TextStyle(color: Colors.blue[700])),
+                  child: Text('Open Settings', style: TextStyle(color: Colors.blue[700])),
                 ),
               ],
             );
           },
         );
+      } else {
+        final newStatus = await Permission.microphone.request();
+        if (newStatus.isGranted) {
+          if (_isSpeechEnabled) {
+            setState(() => _isListening = true);
+            try {
+              await _speechToText.listen(
+                onResult: (result) {
+                  setState(() => _controller.text = result.recognizedWords);
+                },
+                listenFor: const Duration(seconds: 30),
+                pauseFor: const Duration(seconds: 5),
+                localeId: 'en_US',
+              );
+            } catch (e) {
+              setState(() => _isListening = false);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Failed to start voice input: $e')),
+              );
+            }
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Voice input unavailable. Please try again.')),
+            );
+          }
+        } else {
+          showDialog(
+            context: context,
+            builder: (context) {
+              final themeProvider = Provider.of<ThemeProvider>(context);
+              return AlertDialog(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                backgroundColor: themeProvider.themeMode == ThemeMode.dark ? Colors.grey[800] : Colors.white,
+                title: const Text('Microphone Permission', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                content: const Text('Microphone access is required for voice input. Please grant permission to continue.'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                  ),
+                  TextButton(
+                    onPressed: () async {
+                      Navigator.pop(context);
+                      final newStatus = await Permission.microphone.request();
+                      if (newStatus.isGranted) {
+                        _startListening();
+                      }
+                    },
+                    child: Text('Grant', style: TextStyle(color: Colors.blue[700])),
+                  ),
+                ],
+              );
+            },
+          );
+        }
       }
     }
   }
-}
 
   void _stopListening() async {
     setState(() => _isListening = false);
@@ -204,245 +212,251 @@ void _startListening() async {
     }
   }
 
- void _sendMessage({String? parentMessageId}) async {
-  if (_controller.text.isEmpty && !_isListening) return;
+  void _sendMessage({String? parentMessageId}) async {
+    if (_controller.text.isEmpty && (_selectedImage == null || !await _selectedImage!.exists())) return;
 
-  final userMessage = ChatMessage(
-    id: const Uuid().v4(),
-    text: _controller.text,
-    isUser: true,
-    timestamp: DateTime.now(),
-    parentMessageId: parentMessageId,
-  );
-
-  setState(() {
-    _currentSession.messages.add(userMessage);
-    _isBotTyping = true;
-    _editingMessageId = null;
-  });
-
-  await storageService.saveSession(_currentSession);
-  _scrollToBottom();
-
-  _controller.clear();
-
- try {
-  final prompt = _controller.text.toLowerCase().trim(); // Ensure case-insensitive and trim spaces
-  final isImagePrompt = prompt.contains('generate image') ||
-      prompt.contains('create image') ||
-      prompt.contains('make image') || // Added for broader detection
-      prompt.contains('draw') ||
-      prompt.contains('picture') ||
-      prompt.contains('render') ||
-      prompt.contains('art') ||
-      prompt.contains('image of') ||
-      prompt.contains('create an image') || // Added for exact phrasing
-      prompt.contains('generate an image'); // Added for exact phrasing
-  print('Processing prompt: "${_controller.text}"');
-  print('Normalized prompt: "$prompt"');
-  print('isImagePrompt: $isImagePrompt');
-  final response = await openAIService.generateResponse(
-    _currentSession.messages,
-    isImagePrompt: isImagePrompt,
-  );
-
-  print('Received response: text=${response.text}, imageUrl=${response.imageUrl}');
-
-  if (isImagePrompt && response.imageUrl == null) {
-    throw Exception('No image generated: ${response.text}');
-  }
-
-  setState(() {
-    _currentSession.messages.add(ChatMessage(
+    String promptText = _controller.text.trim();
+    final userMessage = ChatMessage(
       id: const Uuid().v4(),
-      text: response.imageUrl != null ? 'Image generated successfully' : response.text,
-      imageUrl: response.imageUrl,
-      isUser: false,
+      text: _selectedImage != null ? '$promptText (with image)' : promptText,
+      isUser: true,
       timestamp: DateTime.now(),
       parentMessageId: parentMessageId,
-    ));
-    _isBotTyping = false;
-  });
-} catch (e) {
-  print('Error in _sendMessage: $e');
-  setState(() {
-    _isBotTyping = false;
-    _currentSession.messages.add(ChatMessage(
-      id: const Uuid().v4(),
-      text: 'Failed to generate image: ${e.toString().replaceFirst('Exception: ', '')}',
-      isUser: false,
-      timestamp: DateTime.now(),
-      parentMessageId: parentMessageId,
-    ));
-  });
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text('Image generation failed: ${e.toString().replaceFirst('Exception: ', '')}')),
-  );
-}
-
-  if (_currentSession.title == 'New Chat' && _currentSession.messages.isNotEmpty) {
-    _currentSession = ChatSession(
-      id: _currentSession.id,
-      title: _currentSession.messages.first.text.length > 30
-          ? '${_currentSession.messages.first.text.substring(0, 30)}...'
-          : _currentSession.messages.first.text,
-      messages: _currentSession.messages,
-      createdAt: _currentSession.createdAt,
+      imageUrls: _selectedImage != null ? [_selectedImage!.path] : null,
     );
-  }
 
-  await storageService.saveSession(_currentSession);
-  _scrollToBottom();
-}
+    setState(() {
+      _currentSession.messages.add(userMessage);
+      _isBotTyping = true;
+      _editingMessageId = null;
+    });
 
- void _editMessage(ChatMessage message) {
-  final editController = TextEditingController(text: message.text);
-  showDialog(
-    context: context,
-    builder: (context) {
-      final themeProvider = Provider.of<ThemeProvider>(context);
-      return AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        backgroundColor: themeProvider.themeMode == ThemeMode.dark ? Colors.grey[800] : Colors.white,
-        title: const Text('Edit Message', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-        content: TextField(
-          controller: editController,
-          decoration: InputDecoration(
-            hintText: 'Edit your message...',
-            hintStyle: TextStyle(color: themeProvider.themeMode == ThemeMode.dark ? Colors.grey[400] : Colors.grey[600]),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
-            filled: true,
-            fillColor: themeProvider.themeMode == ThemeMode.dark ? Colors.grey[700] : Colors.grey[100],
-          ),
-          minLines: 1,
-          maxLines: 5,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-          ),
-          TextButton(
-            onPressed: () {
-              if (editController.text.isNotEmpty) {
-                setState(() {
-                  _editingMessageId = message.id;
-                  _controller.text = editController.text;
-                });
-                _updateMessage();
-                Navigator.pop(context);
-              }
-            },
-            child: Text('Save', style: TextStyle(color: Colors.blue[700])),
-          ),
-        ],
+    await storageService.saveSession(_currentSession);
+    _scrollToBottom();
+
+    _controller.clear();
+
+    try {
+      final prompt = promptText.toLowerCase().trim();
+      final isImagePrompt = _selectedImage != null ||
+          prompt.contains('generate image') ||
+          prompt.contains('create image') ||
+          prompt.contains('make image') ||
+          prompt.contains('draw') ||
+          prompt.contains('picture') ||
+          prompt.contains('render') ||
+          prompt.contains('art') ||
+          prompt.contains('image of') ||
+          prompt.contains('create an image') ||
+          prompt.contains('generate an image') ||
+          prompt.contains('explain this image') ||
+          prompt.contains('tell me about');
+      print('Processing prompt: "$promptText", image: $_selectedImage');
+      print('Normalized prompt: "$prompt"');
+      print('isImagePrompt: $isImagePrompt');
+      final response = await openAIService.generateResponse(
+        _currentSession.messages,
+        isImagePrompt: isImagePrompt,
+        imageFile: _selectedImage,
       );
-    },
-  );
-}
 
- void _updateMessage() async {
-  if (_controller.text.isEmpty || _editingMessageId == null) return;
+      print('Received response: text=${response.text}, imageUrls=${response.imageUrls}');
 
-  final updatedMessage = ChatMessage(
-    id: _editingMessageId!,
-    text: _controller.text,
-    isUser: true,
-    timestamp: DateTime.now(),
-    isEdited: true,
-    parentMessageId: _currentSession.messages
-        .firstWhere((m) => m.id == _editingMessageId)
-        .parentMessageId,
-  );
+      if (isImagePrompt && (response.imageUrls == null || response.imageUrls!.isEmpty)) {
+        throw Exception('No images generated: ${response.text}');
+      }
 
-  setState(() {
-    final index = _currentSession.messages.indexWhere((m) => m.id == _editingMessageId);
-    if (index != -1) {
-      _currentSession.messages[index] = updatedMessage;
+      setState(() {
+        if (response.imageUrls != null && response.imageUrls!.isNotEmpty) {
+          for (var url in response.imageUrls!) {
+            _currentSession.messages.add(ChatMessage(
+              id: const Uuid().v4(),
+              text: 'Image generated successfully',
+              imageUrls: [url],
+              isUser: false,
+              timestamp: DateTime.now(),
+              parentMessageId: parentMessageId,
+            ));
+          }
+        } else {
+          _currentSession.messages.add(ChatMessage(
+            id: const Uuid().v4(),
+            text: response.text,
+            imageUrls: null,
+            isUser: false,
+            timestamp: DateTime.now(),
+            parentMessageId: parentMessageId,
+          ));
+        }
+        _isBotTyping = false;
+        _selectedImage = null;
+      });
+    } catch (e) {
+      print('Error in _sendMessage: $e');
+      setState(() {
+        _isBotTyping = false;
+        _selectedImage = null;
+        _currentSession.messages.add(ChatMessage(
+          id: const Uuid().v4(),
+          text: 'Failed to generate response: ${e.toString().replaceFirst('Exception: ', '')}',
+          imageUrls: null,
+          isUser: false,
+          timestamp: DateTime.now(),
+          parentMessageId: parentMessageId,
+        ));
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to process image or prompt: ${e.toString().replaceFirst('Exception: ', '')}'),
+          action: SnackBarAction(
+            label: 'Retry',
+            onPressed: () => _sendMessage(parentMessageId: parentMessageId),
+          ),
+        ),
+      );
     }
-    _editingMessageId = null;
-    _isBotTyping = true;
-  });
 
-  await storageService.saveSession(_currentSession);
-  _controller.clear();
+    if (_currentSession.title == 'New Chat' && _currentSession.messages.isNotEmpty) {
+      _currentSession = ChatSession(
+        id: _currentSession.id,
+        title: _currentSession.messages.first.text.length > 30
+            ? '${_currentSession.messages.first.text.substring(0, 30)}...'
+            : _currentSession.messages.first.text,
+        messages: _currentSession.messages,
+        createdAt: _currentSession.createdAt,
+      );
+    }
 
- try {
-  final prompt = _controller.text.toLowerCase().trim(); // Ensure case-insensitive and trim spaces
-  final isImagePrompt = prompt.contains('generate image') ||
-      prompt.contains('create image') ||
-      prompt.contains('make image') || // Added for broader detection
-      prompt.contains('draw') ||
-      prompt.contains('picture') ||
-      prompt.contains('render') ||
-      prompt.contains('art') ||
-      prompt.contains('image of') ||
-      prompt.contains('create an image') || // Added for exact phrasing
-      prompt.contains('generate an image'); // Added for exact phrasing
-  print('Processing edited prompt: "${_controller.text}"');
-  print('Normalized prompt: "$prompt"');
-  print('isImagePrompt: $isImagePrompt');
-  final response = await openAIService.generateResponse(
-    _currentSession.messages,
-    isImagePrompt: isImagePrompt,
-  );
-
-  print('Received response: text=${response.text}, imageUrl=${response.imageUrl}');
-
-  if (isImagePrompt && response.imageUrl == null) {
-    throw Exception('No image generated: ${response.text}');
+    await storageService.saveSession(_currentSession);
+    _scrollToBottom();
   }
 
-  setState(() {
-    _currentSession.messages.add(ChatMessage(
-      id: const Uuid().v4(),
-      text: response.imageUrl != null ? 'Image generated successfully' : response.text,
-      imageUrl: response.imageUrl,
-      isUser: false,
-      timestamp: DateTime.now(),
-      parentMessageId: updatedMessage.parentMessageId,
-    ));
-    _isBotTyping = false;
-  });
-} catch (e) {
-  print('Error in _updateMessage: $e');
-  setState(() {
-    _isBotTyping = false;
-    _currentSession.messages.add(ChatMessage(
-      id: const Uuid().v4(),
-      text: 'Failed to generate image: ${e.toString().replaceFirst('Exception: ', '')}',
-      isUser: false,
-      timestamp: DateTime.now(),
-      parentMessageId: updatedMessage.parentMessageId,
-    ));
-  });
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text('Image generation failed: ${e.toString().replaceFirst('Exception: ', '')}')),
-  );
-}
+  void _updateMessage() async {
+    if (_controller.text.isEmpty && (_selectedImage == null || !await _selectedImage!.exists()) || _editingMessageId == null) return;
 
-  await storageService.saveSession(_currentSession);
-  _scrollToBottom();
-}
+    String promptText = _controller.text.trim();
+    final updatedMessage = ChatMessage(
+      id: _editingMessageId!,
+      text: _selectedImage != null ? '$promptText (with image)' : promptText,
+      isUser: true,
+      timestamp: DateTime.now(),
+      isEdited: true,
+      parentMessageId: _currentSession.messages
+          .firstWhere((m) => m.id == _editingMessageId)
+          .parentMessageId,
+      imageUrls: _selectedImage != null ? [_selectedImage!.path] : null,
+    );
 
-void _copyResponse(String text) {
-  showDialog(
-    context: context,
-    builder: (context) {
-      final themeProvider = Provider.of<ThemeProvider>(context);
-      final selectController = TextEditingController(text: text);
-      return AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        backgroundColor: themeProvider.themeMode == ThemeMode.dark ? Colors.grey[800] : Colors.white,
-        title: const Text('Copy Response', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-        content: SingleChildScrollView(
-          child: TextField(
-            controller: selectController,
+    setState(() {
+      final index = _currentSession.messages.indexWhere((m) => m.id == _editingMessageId);
+      if (index != -1) {
+        _currentSession.messages[index] = updatedMessage;
+      }
+      _editingMessageId = null;
+      _isBotTyping = true;
+    });
+
+    await storageService.saveSession(_currentSession);
+    _controller.clear();
+
+    try {
+      final prompt = promptText.toLowerCase().trim();
+      final isImagePrompt = _selectedImage != null ||
+          prompt.contains('generate image') ||
+          prompt.contains('create image') ||
+          prompt.contains('make image') ||
+          prompt.contains('draw') ||
+          prompt.contains('picture') ||
+          prompt.contains('render') ||
+          prompt.contains('art') ||
+          prompt.contains('image of') ||
+          prompt.contains('create an image') ||
+          prompt.contains('generate an image') ||
+          prompt.contains('explain this image') ||
+          prompt.contains('tell me about');
+      print('Processing edited prompt: "$promptText", image: $_selectedImage');
+      print('Normalized prompt: "$prompt"');
+      print('isImagePrompt: $isImagePrompt');
+      final response = await openAIService.generateResponse(
+        _currentSession.messages,
+        isImagePrompt: isImagePrompt,
+        imageFile: _selectedImage,
+      );
+
+      print('Received response: text=${response.text}, imageUrls=${response.imageUrls}');
+
+      if (isImagePrompt && (response.imageUrls == null || response.imageUrls!.isEmpty)) {
+        throw Exception('No images generated: ${response.text}');
+      }
+
+      setState(() {
+        if (response.imageUrls != null && response.imageUrls!.isNotEmpty) {
+          for (var url in response.imageUrls!) {
+            _currentSession.messages.add(ChatMessage(
+              id: const Uuid().v4(),
+              text: 'Image generated successfully',
+              imageUrls: [url],
+              isUser: false,
+              timestamp: DateTime.now(),
+              parentMessageId: updatedMessage.parentMessageId,
+            ));
+          }
+        } else {
+          _currentSession.messages.add(ChatMessage(
+            id: const Uuid().v4(),
+            text: response.text,
+            imageUrls: null,
+            isUser: false,
+            timestamp: DateTime.now(),
+            parentMessageId: updatedMessage.parentMessageId,
+          ));
+        }
+        _isBotTyping = false;
+        _selectedImage = null;
+      });
+    } catch (e) {
+      print('Error in _updateMessage: $e');
+      setState(() {
+        _isBotTyping = false;
+        _selectedImage = null;
+        _currentSession.messages.add(ChatMessage(
+          id: const Uuid().v4(),
+          text: 'Failed to generate response: ${e.toString().replaceFirst('Exception: ', '')}',
+          imageUrls: null,
+          isUser: false,
+          timestamp: DateTime.now(),
+          parentMessageId: updatedMessage.parentMessageId,
+        ));
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to process image or prompt: ${e.toString().replaceFirst('Exception: ', '')}'),
+          action: SnackBarAction(
+            label: 'Retry',
+            onPressed: _updateMessage,
+          ),
+        ),
+      );
+    }
+
+    await storageService.saveSession(_currentSession);
+    _scrollToBottom();
+  }
+
+  void _editMessage(ChatMessage message) {
+    final editController = TextEditingController(text: message.text);
+    showDialog(
+      context: context,
+      builder: (context) {
+        final themeProvider = Provider.of<ThemeProvider>(context);
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          backgroundColor: themeProvider.themeMode == ThemeMode.dark ? Colors.grey[800] : Colors.white,
+          title: const Text('Edit Message', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+          content: TextField(
+            controller: editController,
             decoration: InputDecoration(
-              hintText: 'Select or edit text to copy...',
+              hintText: 'Edit your message...',
               hintStyle: TextStyle(color: themeProvider.themeMode == ThemeMode.dark ? Colors.grey[400] : Colors.grey[600]),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -451,53 +465,310 @@ void _copyResponse(String text) {
               filled: true,
               fillColor: themeProvider.themeMode == ThemeMode.dark ? Colors.grey[700] : Colors.grey[100],
             ),
-            minLines: 3,
-            maxLines: 10,
+            minLines: 1,
+            maxLines: 5,
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-          ),
-          TextButton(
-            onPressed: () {
-              FlutterClipboard.copy(text).then((_) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Full response copied')),
-                );
-                Navigator.pop(context);
-              });
-            },
-            child: Text('Copy All', style: TextStyle(color: Colors.blue[700])),
-          ),
-          TextButton(
-            onPressed: () {
-              if (selectController.selection.isValid) {
-                final selectedText = selectController.text.substring(
-                  selectController.selection.start,
-                  selectController.selection.end,
-                );
-                if (selectedText.isNotEmpty) {
-                  FlutterClipboard.copy(selectedText).then((_) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Selected text copied')),
-                    );
-                    Navigator.pop(context);
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            ),
+            TextButton(
+              onPressed: () {
+                if (editController.text.isNotEmpty) {
+                  setState(() {
+                    _editingMessageId = message.id;
+                    _controller.text = editController.text;
                   });
+                  _updateMessage();
+                  Navigator.pop(context);
                 }
-              }
-            },
-            child: Text('Copy Selected', style: TextStyle(color: Colors.blue[700])),
+              },
+              child: Text('Save', style: TextStyle(color: Colors.blue[700])),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _copyResponse(String text) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final themeProvider = Provider.of<ThemeProvider>(context);
+        final selectController = TextEditingController(text: text);
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          backgroundColor: themeProvider.themeMode == ThemeMode.dark ? Colors.grey[800] : Colors.white,
+          title: const Text('Copy Response', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+          content: SingleChildScrollView(
+            child: TextField(
+              controller: selectController,
+              decoration: InputDecoration(
+                hintText: 'Select or edit text to copy...',
+                hintStyle: TextStyle(color: themeProvider.themeMode == ThemeMode.dark ? Colors.grey[400] : Colors.grey[600]),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                filled: true,
+                fillColor: themeProvider.themeMode == ThemeMode.dark ? Colors.grey[700] : Colors.grey[100],
+              ),
+              minLines: 3,
+              maxLines: 10,
+            ),
           ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            ),
+            TextButton(
+              onPressed: () {
+                FlutterClipboard.copy(text).then((_) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Full response copied')),
+                  );
+                  Navigator.pop(context);
+                });
+              },
+              child: Text('Copy All', style: TextStyle(color: Colors.blue[700])),
+            ),
+            TextButton(
+              onPressed: () {
+                if (selectController.selection.isValid) {
+                  final selectedText = selectController.text.substring(
+                    selectController.selection.start,
+                    selectController.selection.end,
+                  );
+                  if (selectedText.isNotEmpty) {
+                    FlutterClipboard.copy(selectedText).then((_) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Selected text copied')),
+                      );
+                      Navigator.pop(context);
+                    });
+                  }
+                }
+              },
+              child: Text('Copy Selected', style: TextStyle(color: Colors.blue[700])),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _downloadImage(String imageUrl, BuildContext context) async {
+    try {
+      if (!(await Permission.storage.request()).isGranted) {
+        if ((await Permission.storage.status).isPermanentlyDenied) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please enable storage permission in settings')),
+          );
+          await openAppSettings();
+          return;
+        }
+        throw Exception('Storage permission denied');
+      }
+
+      final response = await http.get(Uri.parse(imageUrl));
+      if (response.statusCode != 200) {
+        throw Exception('Download failed: HTTP ${response.statusCode}');
+      }
+
+      final directory = await getDownloadsDirectory();
+      if (directory == null) {
+        throw Exception('Unable to access Downloads directory');
+      }
+      final filePath = '${directory.path}/image_${DateTime.now().millisecondsSinceEpoch}.png';
+      final file = File(filePath);
+      await file.writeAsBytes(response.bodyBytes);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Image saved to Downloads: $filePath')),
       );
-    },
-  );}
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to download image: $e')),
+      );
+    }
+  }
 
-  
+ void _pickImage(ImageSource source) async {
+    // Show loading indicator for better UX
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return const Center(
+          child: CircularProgressIndicator(),
+        );
+      },
+    );
 
-  @override
+    try {
+      PermissionStatus permissionStatus = PermissionStatus.denied;
+      
+      if (source == ImageSource.camera) {
+        // Handle camera permissions
+        permissionStatus = await Permission.camera.status;
+        if (!permissionStatus.isGranted) {
+          permissionStatus = await Permission.camera.request();
+          if (!permissionStatus.isGranted) {
+            if (permissionStatus.isPermanentlyDenied) {
+              Navigator.of(context).pop(); // Close loading
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Camera access is required. Please enable it in app settings.'),
+                ),
+              );
+              await openAppSettings();
+              return;
+            }
+            Navigator.of(context).pop(); // Close loading
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Camera permission denied.')),
+            );
+            return;
+          }
+        }
+      } else {
+        // Handle gallery permissions
+        bool permissionGranted = false;
+        
+        if (Platform.isAndroid) {
+          // Get Android SDK version
+          final androidInfo = await DeviceInfoPlugin().androidInfo;
+          final sdkInt = androidInfo.version.sdkInt;
+          
+          if (sdkInt >= 33) {
+            // Android 13+ (API 33+) - Use granular media permissions
+            permissionStatus = await Permission.photos.status;
+            if (!permissionStatus.isGranted) {
+              permissionStatus = await Permission.photos.request();
+            }
+            permissionGranted = permissionStatus.isGranted;
+          } else if (sdkInt >= 30) {
+            // Android 11-12 (API 30-32) - Check storage permission first
+            permissionStatus = await Permission.storage.status;
+            if (!permissionStatus.isGranted) {
+              permissionStatus = await Permission.storage.request();
+            }
+            permissionGranted = permissionStatus.isGranted;
+            
+            // For some devices, also check photos permission as fallback
+            if (!permissionGranted) {
+              final photosStatus = await Permission.photos.status;
+              if (!photosStatus.isGranted) {
+                final requestedStatus = await Permission.photos.request();
+                if (requestedStatus.isGranted) {
+                  permissionGranted = true;
+                  permissionStatus = requestedStatus;
+                }
+              } else {
+                permissionGranted = true;
+                permissionStatus = photosStatus;
+              }
+            }
+          } else {
+            // Android 10 and below - Use storage permission
+            permissionStatus = await Permission.storage.status;
+            if (!permissionStatus.isGranted) {
+              permissionStatus = await Permission.storage.request();
+            }
+            permissionGranted = permissionStatus.isGranted;
+          }
+        } else if (Platform.isIOS) {
+          // iOS - Use photos permission
+          permissionStatus = await Permission.photos.status;
+          if (!permissionStatus.isGranted) {
+            permissionStatus = await Permission.photos.request();
+          }
+          permissionGranted = permissionStatus.isGranted;
+        } else {
+          // Unsupported platform
+          permissionStatus = PermissionStatus.denied;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Platform not supported for gallery access.')),
+          );
+          return;
+        }
+        
+        if (!permissionGranted) {
+          Navigator.of(context).pop(); // Close loading
+          if (permissionStatus.isPermanentlyDenied) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Gallery access is required. Please enable it in app settings.'),
+              ),
+            );
+            await openAppSettings();
+            return;
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Gallery permission denied.')),
+          );
+          return;
+        }
+      }
+
+      // Pick image after permission is granted
+      final pickedFile = await _picker.pickImage(
+        source: source,
+        imageQuality: 75, // Slightly lower for better performance
+        maxWidth: 800,    // Reduced for better performance
+        maxHeight: 800,
+        preferredCameraDevice: CameraDevice.rear,
+      );
+
+      // Close loading indicator
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+
+      if (pickedFile != null) {
+        final file = File(pickedFile.path);
+        if (await file.exists()) {
+          final fileSize = await file.length();
+          if (fileSize > 20 * 1024 * 1024) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Image size exceeds 20MB limit.')),
+            );
+            return;
+          }
+          
+          setState(() {
+            _selectedImage = file;
+          });
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Image selected: ${pickedFile.path.split('/').last}')),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Selected image is not accessible.')),
+          );
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No image selected.')),
+        );
+      }
+    } catch (e) {
+      // Close loading indicator on error
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to pick image: $e')),
+      );
+    }
+  }
+
+
+@override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
     return Scaffold(
@@ -541,8 +812,8 @@ void _copyResponse(String text) {
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         child: Lottie.asset(
                           'assets/animations/loading.json',
-                          width: 40,
-                          height: 40,
+                          width: 160,
+                          height: 160,
                         ),
                       ),
                     );
@@ -567,6 +838,7 @@ void _copyResponse(String text) {
                         child: ChatBubble(
                           message: message,
                           onReply: (msg) => _sendMessage(parentMessageId: msg.id),
+                          downloadImage: _downloadImage,
                         ),
                       ),
                     ),
@@ -605,73 +877,138 @@ void _copyResponse(String text) {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: _isListening
-                              ? Colors.red.withOpacity(0.2)
-                              : Colors.transparent,
-                        ),
-                        child: IconButton(
-                          icon: Icon(
-                            _isListening ? Icons.mic : Icons.mic_none,
-                            color: _isListening ? Colors.red : Colors.grey[600],
-                            size: 28,
-                          ),
-                          onPressed: _isListening ? _stopListening : _startListening,
-                          tooltip: 'Voice Input',
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextField(
-                          controller: _controller,
-                          decoration: InputDecoration(
-                            hintText: _editingMessageId == null
-                                ? 'Ask anything...'
-                                : 'Editing message...',
-                            hintStyle: TextStyle(
-                              color: themeProvider.themeMode == ThemeMode.dark
-                                  ? Colors.grey[400]
-                                  : Colors.grey[600],
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: _isListening
+                                  ? Colors.red.withOpacity(0.2)
+                                  : Colors.transparent,
                             ),
-                            filled: true,
-                            fillColor: themeProvider.themeMode == ThemeMode.dark
-                                ? Colors.grey[800]
-                                : Colors.grey[100],
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(30),
-                              borderSide: BorderSide.none,
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 12,
+                            child: IconButton(
+                              icon: Icon(
+                                _isListening ? Icons.mic : Icons.mic_none,
+                                color: _isListening ? Colors.red : Colors.grey[600],
+                                size: 28,
+                              ),
+                              onPressed: _isListening ? _stopListening : _startListening,
+                              tooltip: 'Voice Input',
                             ),
                           ),
-                          style: const TextStyle(fontSize: 16),
-                          minLines: 1,
-                          maxLines: 4,
-                          onSubmitted: (_) => _editingMessageId == null
-                              ? _sendMessage()
-                              : _updateMessage(),
-                        ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            icon: Icon(
+                              Icons.photo,
+                              color: Colors.grey[600],
+                              size: 28,
+                            ),
+                            onPressed: () => _pickImage(ImageSource.gallery),
+                            tooltip: 'Pick Image from Gallery',
+                          ),
+                          IconButton(
+                            icon: Icon(
+                              Icons.camera_alt,
+                              color: Colors.grey[600],
+                              size: 28,
+                            ),
+                            onPressed: () => _pickImage(ImageSource.camera),
+                            tooltip: 'Take Photo',
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: _controller,
+                              decoration: InputDecoration(
+                                hintText: _editingMessageId == null
+                                    ? 'Ask anything...'
+                                    : 'Editing message...',
+                                hintStyle: TextStyle(
+                                  color: themeProvider.themeMode == ThemeMode.dark
+                                      ? Colors.grey[400]
+                                      : Colors.grey[600],
+                                ),
+                                filled: true,
+                                fillColor: themeProvider.themeMode == ThemeMode.dark
+                                    ? Colors.grey[800]
+                                    : Colors.grey[100],
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(30),
+                                  borderSide: BorderSide.none,
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                  vertical: 12,
+                                ),
+                              ),
+                              style: const TextStyle(fontSize: 16),
+                              minLines: 1,
+                              maxLines: 4,
+                              onSubmitted: (_) => _editingMessageId == null
+                                  ? _sendMessage()
+                                  : _updateMessage(),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            icon: Icon(
+                              _editingMessageId == null ? Icons.send : Icons.check,
+                              color: Colors.blue[700],
+                              size: 28,
+                            ),
+                            onPressed: _editingMessageId == null
+                                ? _sendMessage
+                                : _updateMessage,
+                            tooltip: _editingMessageId == null ? 'Send' : 'Save Edit',
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        icon: Icon(
-                          _editingMessageId == null ? Icons.send : Icons.check,
-                          color: Colors.blue[700],
-                          size: 28,
+                      if (_selectedImage != null) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8.0),
+                                  child: Image.file(
+                                    _selectedImage!,
+                                    width: 100,
+                                    height: 100,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) => const Icon(Icons.error, color: Colors.red),
+                                  ),
+                                ),
+                                if (_isBotTyping)
+                                  CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.blue[700]!),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              icon: Icon(
+                                Icons.cancel,
+                                color: Colors.grey[600],
+                                size: 24,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _selectedImage = null;
+                                });
+                              },
+                              tooltip: 'Clear Image',
+                            ),
+                          ],
                         ),
-                        onPressed: _editingMessageId == null
-                            ? _sendMessage
-                            : _updateMessage,
-                        tooltip: _editingMessageId == null ? 'Send' : 'Save Edit',
-                      ),
+                      ],
                     ],
                   ),
                 ],
@@ -683,7 +1020,7 @@ void _copyResponse(String text) {
     );
   }
 
-  Widget _buildQuickReplyChip(String label, String prefix) {
+ Widget _buildQuickReplyChip(String label, String prefix) {
     return ActionChip(
       label: Text(label, style: const TextStyle(fontSize: 14)),
       backgroundColor: Provider.of<ThemeProvider>(context).themeMode == ThemeMode.dark
@@ -698,7 +1035,6 @@ void _copyResponse(String text) {
     );
   }
 }
-
 class SessionList extends StatefulWidget {
   final StorageService storageService;
 
